@@ -15,11 +15,19 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.ImeAction
+import androidx.navigation.NavController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.simpleyoutubeapp.data.ChannelResponse
 import com.example.simpleyoutubeapp.data.YouTubeApiService
-import com.example.simpleyoutubeapp.data.YouTubeResponse
+import com.example.simpleyoutubeapp.data.PlaylistResponse
+import com.example.simpleyoutubeapp.ui.VideoPlayerScreen
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-import com.example.simpleyoutubeapp.ui.theme.SimpleYoutubeAppTheme
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 import retrofit2.Retrofit
@@ -58,30 +66,38 @@ suspend fun fetchChannelDetails(apiKey: String, channelId: String): Pair<String,
     }
 }
 
-suspend fun fetchPlaylistItems(apiKey: String, playlistId: String): List<VideoData> {
+suspend fun fetchPlaylistItems(apiKey: String, playlistId: String, pageToken: String?): PlaylistResponse {
     return suspendCancellableCoroutine { continuation ->
-        val call = service.getPlaylistItems("snippet", playlistId, apiKey, 50) // Max現在上限50
-        call.enqueue(object : retrofit2.Callback<YouTubeResponse> {
-            override fun onResponse(call: retrofit2.Call<YouTubeResponse>, response: retrofit2.Response<YouTubeResponse>) {
+        val call = service.getPlaylistItems(
+            part = "snippet",
+            playlistId = playlistId,
+            apiKey = apiKey,
+            pageToken = pageToken,
+            maxResults = 30
+        )
+        call.enqueue(object : retrofit2.Callback<PlaylistResponse> {
+            override fun onResponse(call: retrofit2.Call<PlaylistResponse>, response: retrofit2.Response<PlaylistResponse>) {
                 if (response.isSuccessful) {
                     val items = response.body()?.items ?: emptyList()
+                    val nextPageToken = response.body()?.nextPageToken
                     val videoDataList = items.map { item ->
                         VideoData(
+                            videoId = item.snippet.resourceId.videoId,
                             thumbnailUrl = item.snippet.thumbnails.default.url,
-                            avatarUrl = "",  // 這裡暫時設為空，之後會用 fetchChannelDetails 來替換
+                            avatarUrl = "", // 暫時設置
                             videoTitle = item.snippet.title,
-                            ownerName = "",  // 這裡暫時設為空，之後會用 fetchChannelDetails 來替換
+                            ownerName = "", // 暫時設置
                             uploadDatetime = item.snippet.publishedAt
                         )
                     }
-                    continuation.resume(videoDataList, null)
+                    continuation.resume(PlaylistResponse(items, nextPageToken), null)
                 } else {
-                    continuation.resume(emptyList(), null)
+                    continuation.resume(PlaylistResponse(emptyList(), null), null)
                 }
             }
 
-            override fun onFailure(call: retrofit2.Call<YouTubeResponse>, t: Throwable) {
-                continuation.resume(emptyList(), null)
+            override fun onFailure(call: retrofit2.Call<PlaylistResponse>, t: Throwable) {
+                continuation.resume(PlaylistResponse(emptyList(), null), null)
             }
         })
     }
@@ -92,78 +108,127 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MyApp {
-//                VideoList(videoDataList = sampleVideoData())
-                HomeScreen("")
-            }
+            MyApp(apiKey = "AIzaSyD3KIzJyPunDkE-9tNQP4cerP79-yNpTt0")
         }
     }
 }
 
 @Composable
-fun MyApp(content: @Composable () -> Unit) {
-    MaterialTheme {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colors.background
-        ) {
-            content()
+fun MyApp(apiKey: String) {
+    val navController = rememberNavController()
+
+    NavHost(navController = navController, startDestination = "videoList") {
+        composable("videoList") {
+            HomeScreen(apiKey, navController)
+        }
+        composable(
+            route = "videoPlayer/{videoId}/{title}/{ownerName}/{uploadDatetime}",
+            arguments = listOf(
+                navArgument("videoId") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType },
+                navArgument("ownerName") { type = NavType.StringType },
+                navArgument("uploadDatetime") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val videoId = backStackEntry.arguments?.getString("videoId") ?: ""
+            val title = backStackEntry.arguments?.getString("title") ?: ""
+            val ownerName = backStackEntry.arguments?.getString("ownerName") ?: ""
+            val uploadDatetime = backStackEntry.arguments?.getString("uploadDatetime") ?: ""
+
+            VideoPlayerScreen(
+                navController = navController,  // 傳遞 navController
+                videoId = videoId,
+                title = title,
+                ownerName = ownerName,
+                uploadDatetime = uploadDatetime
+            )
         }
     }
 }
 
 @Composable
-fun HomeScreen(apiKey: String) {
+fun HomeScreen(apiKey: String, navController: NavController) {
     var videoDataList by remember { mutableStateOf<List<VideoData>>(emptyList()) }
+    var nextPageToken by remember { mutableStateOf<String?>(null) }
     var ownerName by remember { mutableStateOf("") }
     var avatarUrl by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }  // 初始狀態設為 true，表示正在加載數據
+
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
-        // Step 1, 首先獲取 Channel Details
-        val (name, avatar) = fetchChannelDetails(apiKey, "UC0C-w0YjGpqDXGB8IHb662A")
+        // 獲取頻道詳細信息
+        val (name, avatar) = fetchChannelDetails(apiKey, "UCMUnInmOkrWN4gof9KlhNmQ")
         ownerName = name
         avatarUrl = avatar
 
-        // Step 2, 接著獲取 Playlist Items，並更新 ownerName 和 avatarUrl
-        val videos = fetchPlaylistItems(apiKey, "UUMUnInmOkrWN4gof9KlhNmQ").map { video ->
-            video.copy(ownerName = ownerName, avatarUrl = avatarUrl)
-        }
-        videoDataList = videos
-    }
+        // 模擬一個延遲來顯示 Skeleton
+        delay(2000)
 
-    var searchQuery by remember { mutableStateOf("") }
-    var isFocused by remember { mutableStateOf(false) }
+        val response = fetchPlaylistItems(apiKey, "UUMUnInmOkrWN4gof9KlhNmQ", null)
+        videoDataList = response.items.map { playlistItem ->
+            VideoData(
+                videoId = playlistItem.snippet.resourceId.videoId,
+                thumbnailUrl = playlistItem.snippet.thumbnails.default.url,
+                avatarUrl = avatarUrl,
+                videoTitle = playlistItem.snippet.title,
+                ownerName = ownerName,
+                uploadDatetime = playlistItem.snippet.publishedAt
+            )
+        }
+        nextPageToken = response.nextPageToken
+        isLoading = false  // 數據加載完成後，將加載狀態設為 false，隱藏 Skeleton
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(text = if (isFocused) "" else "Simple Youtube")
-                },
+                title = { Text(if (isLoading) "Loading..." else ownerName) },
                 actions = {
-                    IconButton(onClick = { /* Handle search icon click if necessary */ }) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search Icon"
-                        )
+                    IconButton(onClick = { /* 搜索邏輯 */ }) {
+                        Icon(imageVector = Icons.Default.Search, contentDescription = "Search")
                     }
                 }
             )
         },
         content = {
-            Column(modifier = Modifier.fillMaxSize().padding(it)) {
-                SearchBar(
-                    searchQuery = searchQuery,
-                    onQueryChange = { query -> searchQuery = query },
-                    onFocusChange = { focused -> isFocused = focused }
+            Column(modifier = Modifier.fillMaxSize()) {
+                // 根據加載狀態顯示骨架屏或真實數據
+                VideoList(
+                    videoDataList = videoDataList,
+                    onVideoClick = { video ->
+                        navController.navigate(
+                            "videoPlayer/${video.videoId}/${video.videoTitle}/${video.ownerName}/${video.uploadDatetime}"
+                        )
+                    },
+                    onLoadMore = {
+                        if (!isLoading && nextPageToken != null) {
+                            isLoading = true
+                            // 使用協程範圍來加載更多數據
+                            coroutineScope.launch {
+                                val response = fetchPlaylistItems(apiKey, "UUMUnInmOkrWN4gof9KlhNmQ", nextPageToken)
+                                videoDataList = videoDataList + response.items.map { playlistItem ->
+                                    VideoData(
+                                        videoId = playlistItem.snippet.resourceId.videoId,
+                                        thumbnailUrl = playlistItem.snippet.thumbnails.default.url,
+                                        avatarUrl = avatarUrl,
+                                        videoTitle = playlistItem.snippet.title,
+                                        ownerName = ownerName,
+                                        uploadDatetime = playlistItem.snippet.publishedAt
+                                    )
+                                }
+                                nextPageToken = response.nextPageToken
+                                isLoading = false
+                            }
+                        }
+                    },
+                    isLoading = isLoading // 傳遞加載狀態，控制骨架屏顯示
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-//                VideoList(videoDataList = sampleVideoData())
-                VideoList(videoDataList = videoDataList)
             }
         }
     )
 }
+
 
 @Composable
 fun SearchBar(
@@ -192,7 +257,5 @@ fun SearchBar(
 @Preview(showBackground = true)
 @Composable
 fun DefaultPreview() {
-    MyApp {
-        HomeScreen("")
-    }
+    MyApp(apiKey = "AIzaSyD3KIzJyPunDkE-9tNQP4cerP79-yNpTt0")
 }

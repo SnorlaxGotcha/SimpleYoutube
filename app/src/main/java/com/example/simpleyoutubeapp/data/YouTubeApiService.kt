@@ -17,6 +17,7 @@ interface YouTubeApiService {
         @Query("part") part: String,
         @Query("playlistId") playlistId: String,
         @Query("key") apiKey: String,
-        @Query("maxResults") maxResults: Int
-    ): Call<YouTubeResponse>
+        @Query("maxResults") maxResults: Int,
+        @Query("pageToken") pageToken: String?
+    ): Call<PlaylistResponse>
 }

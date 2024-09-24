@@ -1,7 +1,8 @@
 package com.example.simpleyoutubeapp.data
 
-data class YouTubeResponse(
-    val items: List<PlaylistItem>
+data class PlaylistResponse(
+    val items: List<PlaylistItem>,
+    val nextPageToken: String?
 )
 
 data class PlaylistItem(

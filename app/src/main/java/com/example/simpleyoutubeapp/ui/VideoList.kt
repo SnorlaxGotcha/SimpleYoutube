@@ -1,34 +1,62 @@
 package com.example.simpleyoutubeapp
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberImagePainter
 
+
 @Composable
-fun VideoList(videoDataList: List<VideoData>) {
+fun VideoList(
+    videoDataList: List<VideoData>,
+    onVideoClick: (VideoData) -> Unit,
+    onLoadMore: () -> Unit,
+    isLoading: Boolean // 新增 isLoading 參數來控制骨架屏
+) {
     LazyColumn {
-        items(videoDataList.size) { index ->
-            VideoListItem(videoData = videoDataList[index])
+        if (isLoading) {
+            // 顯示 5 個骨架屏項目
+            items(5) {
+                SkeletonVideoListItem()
+            }
+        } else {
+            // 顯示實際的影片數據
+            items(videoDataList) { video ->
+                VideoListItem(videoData = video, onClick = { onVideoClick(video) })
+            }
+        }
+
+        // 當滾動到底部時觸發 onLoadMore
+        item {
+            LaunchedEffect(Unit) {
+                onLoadMore()
+            }
         }
     }
 }
 
+
 @Composable
-fun VideoListItem(videoData: VideoData) {
+fun VideoListItem(videoData: VideoData, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .padding(8.dp)
             .fillMaxWidth()
+            .clickable { onClick() }
     ) {
         // Thumbnail
         Image(
@@ -65,6 +93,57 @@ fun VideoListItem(videoData: VideoData) {
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(text = videoData.uploadDatetime, style = MaterialTheme.typography.body2)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun SkeletonVideoListItem() {
+    Column(
+        modifier = Modifier
+            .padding(8.dp)
+            .fillMaxWidth()
+    ) {
+        // 模擬縮略圖
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .background(Color.LightGray)
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 模擬標題和其他信息
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // 模擬頭像
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color.Gray)
+            )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.7f)
+                        .height(20.dp)
+                        .background(Color.Gray)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.5f)
+                        .height(20.dp)
+                        .background(Color.Gray)
+                )
             }
         }
     }
