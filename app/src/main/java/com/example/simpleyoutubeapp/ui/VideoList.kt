@@ -18,6 +18,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberImagePainter
+import java.text.SimpleDateFormat
+import java.util.*
 
 
 @Composable
@@ -52,6 +54,8 @@ fun VideoList(
 
 @Composable
 fun VideoListItem(videoData: VideoData, onClick: () -> Unit) {
+    val formattedDate = formatUploadDatetime(videoData.uploadDatetime)
+
     Column(
         modifier = Modifier
             .padding(8.dp)
@@ -91,10 +95,26 @@ fun VideoListItem(videoData: VideoData, onClick: () -> Unit) {
                 Row {
                     Text(text = videoData.ownerName, style = MaterialTheme.typography.body2)
                     Spacer(modifier = Modifier.width(16.dp))
-                    Text(text = videoData.uploadDatetime, style = MaterialTheme.typography.body2)
+                    // 顯示格式化後的日期
+                    Text(text = formattedDate, style = MaterialTheme.typography.body2)
                 }
             }
         }
+    }
+}
+
+// Helper function to format upload datetime
+fun formatUploadDatetime(datetime: String): String {
+    return try {
+        val inputFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
+        inputFormat.timeZone = TimeZone.getTimeZone("UTC")
+        val outputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val date = inputFormat.parse(datetime)
+        date?.let {
+            outputFormat.format(it)
+        } ?: datetime
+    } catch (e: Exception) {
+        datetime // 如果格式化失敗，返回原始值
     }
 }
 
